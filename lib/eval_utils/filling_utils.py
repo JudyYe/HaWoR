@@ -40,6 +40,11 @@ def slerp_interpolation_aa(pos, valid):
                     else:
                         interp_rot = slerp([idx])
                         pos_interp[b, idx, n, :] = interp_rot.as_rotvec()[0]
+
+            if len(valid_idxs) == 1:
+                # just repeat the only valid value for the whole sequence
+                pos_interp[b, :, n, :] = quat_b_n[valid_idxs[0]]
+
     # print("#######")
     # if N > 1:
     #     print(pos[1,0,11])
@@ -107,6 +112,14 @@ def linear_interpolation_nd(pos, valid):
             if len(valid_idxs) > 1:  # 确保有足够的有效点用于插值
                 pos_b_idx[invalid_idxs] = np.interp(invalid_idxs, valid_idxs, pos_b_idx[valid_idxs])
                 pos_interp[b, :, idx] = pos_b_idx  # 保存插值结果
+            
+            # NOTE: judy's code
+            if len(valid_idxs) == 1:
+                # just repeat the only valid value for the whole sequence
+                # print('before', pos_interp[b, :, idx])
+                pos_interp[b, :, idx] = pos_b_idx[valid_idxs[0]]                
+                # print('after', pos_interp[b, :, idx])
+            # import ipdb; ipdb.set_trace()
     
     return pos_interp
 

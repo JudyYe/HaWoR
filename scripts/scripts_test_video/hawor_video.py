@@ -56,6 +56,7 @@ def hawor_motion_estimation(args, start_idx, end_idx, seq_folder):
     video = seq_folder.split('/')[-1]
 
     suf = '_gt' if args.gt_box else ''
+    # suf = ''
     tracks = np.load(f'{seq_folder}/tracks_{start_idx}_{end_idx}/model_tracks{suf}.npy', allow_pickle=True).item()
     img_focal = args.img_focal
     if img_focal is None:
@@ -192,9 +193,9 @@ def hawor_motion_estimation(args, start_idx, end_idx, seq_folder):
             pred_dict={
                 k:v.tolist() for k, v in data_out.items()
             }
-            pred_path = os.path.join(seq_folder, 'cam_space', str(idx), f"{frame_ck[0]}_{frame_ck[-1]}{suf}.json")
-            if not os.path.exists(os.path.join(seq_folder, 'cam_space', str(idx))):
-                os.makedirs(os.path.join(seq_folder, 'cam_space', str(idx)))
+            pred_path = os.path.join(seq_folder, f'cam_space{suf}', str(idx), f"{frame_ck[0]}_{frame_ck[-1]}.json")
+            if not os.path.exists(os.path.join(seq_folder, f'cam_space{suf}', str(idx))):
+                os.makedirs(os.path.join(seq_folder, f'cam_space{suf}', str(idx)))
             with open(pred_path, "w") as f:
                 json.dump(pred_dict, f, indent=1)
 
@@ -233,6 +234,7 @@ def hawor_infiller(args, start_idx, end_idx, frame_chunks_all, R_c2w_sla_all=Non
     # load infiller
     weight_path = args.infiller_weight
     suf = '_gt' if args.gt_box else ''
+    # suf = ''
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     ckpt = torch.load(weight_path, map_location=device)
     pos_dim = 3
@@ -281,7 +283,7 @@ def hawor_infiller(args, start_idx, end_idx, frame_chunks_all, R_c2w_sla_all=Non
 
         for frame_ck in frame_chunks:
             print(f"from frame {frame_ck[0]} to {frame_ck[-1]}")                
-            pred_path = os.path.join(seq_folder, 'cam_space', str(idx), f"{frame_ck[0]}_{frame_ck[-1]}{suf}.json")
+            pred_path = os.path.join(seq_folder, f'cam_space{suf}', str(idx), f"{frame_ck[0]}_{frame_ck[-1]}.json")
             with open(pred_path, "r") as f:
                 pred_dict = json.load(f)
             data_out = {
@@ -303,14 +305,17 @@ def hawor_infiller(args, start_idx, end_idx, frame_chunks_all, R_c2w_sla_all=Non
     # runing fillingnet for this video
     frame_list = torch.tensor(list(range(pred_trans.size(1))))
     pred_valid = (pred_valid > 0).numpy()
+    vis_valid = pred_valid.copy()
     for k, idx in enumerate([1, 0]):
         missing = ~pred_valid[idx]
 
         frame = frame_list[missing]
         frame_chunks = parse_chunks_hand_frame(frame)
 
+
         print(f"run infiller on {idx2hand[idx]} hand ...")
         for frame_ck in tqdm(frame_chunks):
+            # import ipdb; ipdb.set_trace()
             start_shift = -1
             while frame_ck[0] + start_shift >= 0 and pred_valid[:, frame_ck[0] + start_shift].sum() != 2:
                 start_shift -= 1  # Shift to find the previous valid frame as start
@@ -318,7 +323,8 @@ def hawor_infiller(args, start_idx, end_idx, frame_chunks_all, R_c2w_sla_all=Non
 
             frame_start = frame_ck[0]
             filling_net_start = max(0, frame_start + start_shift)
-            filling_net_end = min(len(imgfiles)-1, filling_net_start + filling_length)
+            # filling_net_end = min(len(imgfiles)-1, filling_net_start + filling_length)
+            filling_net_end = min(len(imgfiles), filling_net_start + filling_length)
             seq_valid = pred_valid[:, filling_net_start:filling_net_end]
             filling_seq = {}
             filling_seq['trans'] = pred_trans[:, filling_net_start:filling_net_end].numpy()
@@ -376,6 +382,6 @@ def hawor_infiller(args, start_idx, end_idx, frame_chunks_all, R_c2w_sla_all=Non
             pred_valid[:, filling_net_start:filling_net_end] = 1
     save_path = os.path.join(seq_folder, f"world_space_res{suf}.pth")
     joblib.dump([pred_trans, pred_rot, pred_hand_pose, pred_betas, pred_valid], save_path)
-    return pred_trans, pred_rot, pred_hand_pose, pred_betas, pred_valid
+    return pred_trans, pred_rot, pred_hand_pose, pred_betas, pred_valid, vis_valid
 
     

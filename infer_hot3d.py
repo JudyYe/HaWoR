@@ -256,9 +256,11 @@ def do_one(args):
         delta = gt_wTc @ geom_utils.inverse_rt_v2(wTc_slam)
 
     
-    pred_trans, pred_rot, pred_hand_pose, pred_betas, pred_valid = hawor_infiller(args, start_idx, end_idx, frame_chunks_all, R_c2w_sla_all=R_c2w_sla_all, t_c2w_sla_all=t_c2w_sla_all)
+    pred_trans, pred_rot, pred_hand_pose, pred_betas, pred_valid, vis_valid = hawor_infiller(args, start_idx, end_idx, frame_chunks_all, R_c2w_sla_all=R_c2w_sla_all, t_c2w_sla_all=t_c2w_sla_all)
+    print(pred_valid[:, 130:], pred_valid.shape)
+    print(vis_valid[:, 130:], vis_valid.shape)
 
-    data = cvt2my_data(wrapper, pred_trans, pred_rot, pred_hand_pose, pred_betas, pred_valid, R_c2w_sla_all, t_c2w_sla_all, intrinsics)
+    data = cvt2my_data(wrapper, pred_trans, pred_rot, pred_hand_pose, pred_betas, pred_valid, vis_valid, R_c2w_sla_all, t_c2w_sla_all, intrinsics)
     # import ipdb; ipdb.set_trace()
 
     # for k, v in gt_data.items():
@@ -338,7 +340,7 @@ def do_one(args):
         rr_vis(left_dict, right_dict, output_pth, img_focal, image_names, R_c2w=R_c2w_sla_all[vis_start:vis_end], t_c2w=t_c2w_sla_all[vis_start:vis_end])
     
 
-def cvt2my_data(wrapper: hand_utils.ManopthWrapper, pred_trans, pred_rot, pred_hand_pose, pred_betas, pred_valid, R_c2w_sla_all, t_c2w_sla_all, intrinsics):
+def cvt2my_data(wrapper: hand_utils.ManopthWrapper, pred_trans, pred_rot, pred_hand_pose, pred_betas, pred_valid, vis_valid, R_c2w_sla_all, t_c2w_sla_all, intrinsics):
     # print(pred_trans.shape, pred_rot.shape, pred_hand_pose.shape, pred_betas.shape, pred_valid.shape, R_c2w_sla_all.shape, t_c2w_sla_all.shape, intrinsics.shape)
 
     data = {}
@@ -362,6 +364,7 @@ def cvt2my_data(wrapper: hand_utils.ManopthWrapper, pred_trans, pred_rot, pred_h
         data[f"{hand}_hand_shape"] = shape
 
         data[f"{hand}_hand_valid"] = pred_valid[hand_idx]
+        data[f"{hand}_hand_vis"] = vis_valid[hand_idx]
 
     wTc = geom_utils.rt_to_homo(R_c2w_sla_all, t_c2w_sla_all)
     data["wTc"] = wTc
@@ -382,8 +385,9 @@ def batch_preprocess(func):
     clips_quest = sorted(glob(os.path.join(args.clips_dir, "train_quest3", "*.tar")))
     clips = clips_aria + clips_quest
     for clip in tqdm(clips):
-        lock_file = osp.join(args.preprocess_dir, "lock", os.path.basename(clip))
-        done_file = osp.join(args.preprocess_dir, "done", os.path.basename(clip))
+        
+        lock_file = osp.join(args.preprocess_dir, f"lock.box{args.gt_box}", os.path.basename(clip))
+        done_file = osp.join(args.preprocess_dir, f"done.box{args.gt_box}", os.path.basename(clip))
 
         if osp.exists(done_file) and not args.no_skip:
             continue
@@ -445,7 +449,12 @@ if __name__ == '__main__':
     parser.add_argument("--vis", action='store_true')
     parser.add_argument("--no_skip", action='store_true')
     args = parser.parse_args()
-    args.preprocess_dir = args.preprocess_dir.rstrip('/') + f'_gtcam{args.gt_cam}'
+    # args.preprocess_dir = args.preprocess_dir.rstrip('/') + f'_gtcam{args.gt_cam}'
+    if args.gt_cam:
+        dir_suf = "camGT"
+    else:
+        dir_suf = "camSLAM"
+    args.preprocess_dir = args.preprocess_dir.rstrip('/') + f'_{dir_suf}'
 
     wrapper = hand_utils.ManopthWrapper()
     sided_wrapper = {
@@ -453,10 +462,10 @@ if __name__ == '__main__':
         "right": hand_utils.ManopthWrapper(side="right"),
     }
 
-    # batch_preprocess(do_one)
+    batch_preprocess(do_one)
 
-    video_args = config_args(args, f'clip-{args.seq:06d}')
-    do_one(video_args)
+    # video_args = config_args(args, f'clip-{args.seq:06d}')
+    # do_one(video_args)
 
     # do_one(args)
 
