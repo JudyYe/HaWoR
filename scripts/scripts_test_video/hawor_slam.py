@@ -16,7 +16,7 @@ from glob import glob
 from pycocotools import mask as masktool
 from lib.pipeline.masked_droid_slam import *
 from lib.pipeline.est_scale import *
-from hawor.utils.process import block_print, enable_print
+from hawor.utils.process import block_print, enable_print, get_imgfiles
 
 sys.path.insert(0, os.path.dirname(__file__) + '/../../thirdparty/Metric3D')
 from metric import Metric3D
@@ -43,20 +43,23 @@ def split_list_by_interval(lst, interval=1000):
     
     return start_indices, end_indices, split_lists
 
+
+
+    
 def hawor_slam(args, start_idx, end_idx):
     # File and folders
-    file = args.video_path
-    video_root = os.path.dirname(file)
-    video = os.path.basename(file).split('.')[0]
-    seq_folder = os.path.join(video_root, video)
-    os.makedirs(seq_folder, exist_ok=True)
-    video_folder = os.path.join(video_root, video)
+    # file = args.video_path
+    # video_root = os.path.dirname(file)
+    # video = os.path.basename(file).split('.')[0]
+    # seq_folder = os.path.join(video_root, video)
+    # os.makedirs(seq_folder, exist_ok=True)
+    # video_folder = os.path.join(video_root, video)
 
-    img_folder = f'{video_folder}/extracted_images'
-    imgfiles = natsorted(glob(f'{img_folder}/*.jpg'))
+    # img_folder = f'{video_folder}/extracted_images'
+    # imgfiles = natsorted(glob(f'{img_folder}/*.jpg'))
 
-    first_img = cv2.imread(imgfiles[0])
-    height, width, _ = first_img.shape
+    imgfiles, seq_folder = get_imgfiles(args)
+    video_folder = seq_folder
     
     print(f'Running slam on {video_folder} ...')
 
@@ -76,7 +79,7 @@ def hawor_slam(args, start_idx, end_idx):
         except:
             
             print('No focal length provided')
-            focal = 600
+            focal = 600 
             with open(os.path.join(video_folder, 'est_focal.txt'), 'w') as file:
                 file.write(str(focal))
     calib = np.array(est_calib(imgfiles)) # [focal, focal, cx, cy]

@@ -78,6 +78,15 @@ def load_slam_cam(fpath):
     R_c2w_sla = quaternion_to_matrix(pred_camq[:,[3,0,1,2]])
     R_w2c_sla = R_c2w_sla.transpose(-1, -2)
     t_w2c_sla = -torch.einsum("bij,bj->bi", R_w2c_sla, t_c2w_sla)
+
+    # R_x = torch.tensor([[1,  0,  0],
+    #                     [0, -1,  0],
+    #                     [0,  0, -1]]).float()
+    # R_c2w_sla = torch.einsum('ij,njk->nik', R_x, R_c2w_sla)
+    # t_c2w_sla = torch.einsum('ij,nj->ni', R_x, t_c2w_sla)
+    # R_w2c_sla = R_c2w_sla.transpose(-1, -2)
+    # t_w2c_sla = -torch.einsum("bij,bj->bi", R_w2c_sla, t_c2w_sla)
+
     return R_w2c_sla, t_w2c_sla, R_c2w_sla, t_c2w_sla
 
 
@@ -97,3 +106,25 @@ def interpolate_bboxes(bboxes):
         interpolated_bboxes[zero_indices, i] = interp_func(zero_indices)
     
     return interpolated_bboxes
+
+
+def cam_to_img(kpts, intri):
+    """
+    Project points in camera coordinate system to image plane
+    Input:
+        kpts: (**,3)
+    Output:
+        new_kpts: (**,2)
+    """
+    shape = list(kpts.shape)
+    shape[-1] = 2
+    kpts = kpts.flatten(0, -2)
+
+    new_kpts = kpts.clone()
+    new_kpts = intri @ new_kpts.T  # (3,N)
+    new_kpts = new_kpts / new_kpts[2, :]
+    new_kpts = new_kpts[:2, :].T
+
+    new_kpts = new_kpts.reshape(*shape)
+    
+    return new_kpts    

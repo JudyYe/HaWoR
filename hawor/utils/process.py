@@ -196,3 +196,50 @@ def run_mano_twohands(init_trans, init_rot, init_hand_pose, is_right, init_betas
 
     }
     return outputs_two
+
+
+from glob import glob
+import subprocess
+import os
+from natsort import natsorted
+
+def extract_frames(video_path, output_folder):
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    command = [
+        'ffmpeg',               
+        '-i', video_path,       
+        '-vf', 'fps=30',         
+        '-start_number', '0',
+        os.path.join(output_folder, '%04d.jpg')  
+    ]
+
+    subprocess.run(command, check=True)
+
+
+def get_imgfiles(args):
+    if os.path.isfile(args.video_path):
+        file = args.video_path
+        root = os.path.dirname(file)
+        seq = os.path.basename(file).split('.')[0]
+
+        seq_folder = f'{root}/{seq}'
+        img_folder = f'{seq_folder}/extracted_images'
+        os.makedirs(seq_folder, exist_ok=True)
+        os.makedirs(img_folder, exist_ok=True)
+
+        ##### Extract Frames #####
+        imgfiles = natsorted(glob(f'{img_folder}/*.jpg'))
+        # print(imgfiles[:10])
+        if len(imgfiles) > 0:
+            print("Skip extracting frames")
+        else:
+            _ = extract_frames(file, img_folder)
+        imgfiles = natsorted(glob(f'{img_folder}/*.jpg'))
+    else:
+        seq_folder = args.video_path
+        imgfiles = natsorted(glob(os.path.join(seq_folder, 'extracted_images/*.*g')))
+        print(f"Found {len(imgfiles)} images in {seq_folder} ... query: {os.path.join(seq_folder, 'extracted_images/*.*g')} ...")
+    return imgfiles, seq_folder
+

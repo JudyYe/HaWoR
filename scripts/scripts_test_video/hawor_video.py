@@ -16,9 +16,10 @@ from lib.eval_utils.custom_utils import cam2world_convert, load_slam_cam
 from lib.eval_utils.custom_utils import interpolate_bboxes
 from lib.eval_utils.filling_utils import filling_postprocess, filling_preprocess
 from lib.vis.renderer import Renderer
-from hawor.utils.process import get_mano_faces, run_mano, run_mano_left
+from hawor.utils.process import get_mano_faces, run_mano, run_mano_left, get_imgfiles
 from hawor.utils.rotation import angle_axis_to_rotation_matrix, rotation_matrix_to_angle_axis
 from infiller.lib.model.network import TransformerModel
+
 
 def load_hawor(checkpoint_path):
     from pathlib import Path
@@ -38,19 +39,24 @@ def load_hawor(checkpoint_path):
 
 
 
+    
+
 def hawor_motion_estimation(args, start_idx, end_idx, seq_folder):
     model, model_cfg = load_hawor(args.checkpoint)
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     model = model.to(device)
     model.eval()
 
-    file = args.video_path
-    video_root = os.path.dirname(file)
-    video = os.path.basename(file).split('.')[0]
-    img_folder = f"{video_root}/{video}/extracted_images"
-    imgfiles = np.array(natsorted(glob(f'{img_folder}/*.jpg')))
+    # file = args.video_path
+    # video_root = os.path.dirname(file)
+    # video = os.path.basename(file).split('.')[0]
+    # img_folder = f"{video_root}/{video}/extracted_images"
+    # imgfiles = np.array(natsorted(glob(f'{img_folder}/*.jpg')))
+    imgfiles= np.array(get_imgfiles(args)[0])
+    video = seq_folder.split('/')[-1]
 
-    tracks = np.load(f'{seq_folder}/tracks_{start_idx}_{end_idx}/model_tracks.npy', allow_pickle=True).item()
+    suf = '_gt' if args.gt_box else ''
+    tracks = np.load(f'{seq_folder}/tracks_{start_idx}_{end_idx}/model_tracks{suf}.npy', allow_pickle=True).item()
     img_focal = args.img_focal
     if img_focal is None:
         try:
@@ -65,9 +71,11 @@ def hawor_motion_estimation(args, start_idx, end_idx, seq_folder):
     
     tid = np.array([tr for tr in tracks])
 
-    if os.path.exists(f'{seq_folder}/tracks_{start_idx}_{end_idx}/frame_chunks_all.npy'):
+    # replace this! 
+
+    if os.path.exists(f'{seq_folder}/tracks_{start_idx}_{end_idx}/frame_chunks_all{suf}.npy'):
         print("skip hawor motion estimation")
-        frame_chunks_all = joblib.load(f'{seq_folder}/tracks_{start_idx}_{end_idx}/frame_chunks_all.npy')
+        frame_chunks_all = joblib.load(f'{seq_folder}/tracks_{start_idx}_{end_idx}/frame_chunks_all{suf}.npy')
         return frame_chunks_all, img_focal
 
     print(f'Running hawor on {video} ...')
@@ -184,7 +192,7 @@ def hawor_motion_estimation(args, start_idx, end_idx, seq_folder):
             pred_dict={
                 k:v.tolist() for k, v in data_out.items()
             }
-            pred_path = os.path.join(seq_folder, 'cam_space', str(idx), f"{frame_ck[0]}_{frame_ck[-1]}.json")
+            pred_path = os.path.join(seq_folder, 'cam_space', str(idx), f"{frame_ck[0]}_{frame_ck[-1]}{suf}.json")
             if not os.path.exists(os.path.join(seq_folder, 'cam_space', str(idx))):
                 os.makedirs(os.path.join(seq_folder, 'cam_space', str(idx)))
             with open(pred_path, "w") as f:
@@ -215,13 +223,16 @@ def hawor_motion_estimation(args, start_idx, end_idx, seq_folder):
                 model_masks[frame_ck[img_i]] += mask
                 
     model_masks = model_masks > 0 # bool
-    np.save(f'{seq_folder}/tracks_{start_idx}_{end_idx}/model_masks.npy', model_masks)
-    joblib.dump(frame_chunks_all, f'{seq_folder}/tracks_{start_idx}_{end_idx}/frame_chunks_all.npy')
+    np.save(f'{seq_folder}/tracks_{start_idx}_{end_idx}/model_masks{suf}.npy', model_masks)
+    joblib.dump(frame_chunks_all, f'{seq_folder}/tracks_{start_idx}_{end_idx}/frame_chunks_all{suf}.npy')
     return frame_chunks_all, img_focal
 
-def hawor_infiller(args, start_idx, end_idx, frame_chunks_all):
+
+
+def hawor_infiller(args, start_idx, end_idx, frame_chunks_all, R_c2w_sla_all=None, t_c2w_sla_all=None):
     # load infiller
     weight_path = args.infiller_weight
+    suf = '_gt' if args.gt_box else ''
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     ckpt = torch.load(weight_path, map_location=device)
     pos_dim = 3
@@ -236,20 +247,23 @@ def hawor_infiller(args, start_idx, end_idx, frame_chunks_all):
     filling_model.load_state_dict(ckpt['transformer_encoder_state_dict'])
     filling_model.eval()
 
-    file = args.video_path
-    video_root = os.path.dirname(file)
-    video = os.path.basename(file).split('.')[0]
-    seq_folder = os.path.join(video_root, video)
-    img_folder = f"{video_root}/{video}/extracted_images"
+    # file = args.video_path
+    # video_root = os.path.dirname(file)
+    # video = os.path.basename(file).split('.')[0]
+    # seq_folder = os.path.join(video_root, video)
+    # img_folder = f"{video_root}/{video}/extracted_images"
 
-    # Previous steps
-    imgfiles = np.array(natsorted(glob(f'{img_folder}/*.jpg')))
+    # # Previous steps
+    # imgfiles = np.array(natsorted(glob(f'{img_folder}/*.jpg')))
+    imgfiles, seq_folder = get_imgfiles(args)
+    imgfiles = np.array(imgfiles)
 
     idx2hand = ['left', 'right']
     filling_length = 120
 
     fpath = os.path.join(seq_folder, f"SLAM/hawor_slam_w_scale_{start_idx}_{end_idx}.npz")
-    R_w2c_sla_all, t_w2c_sla_all, R_c2w_sla_all, t_c2w_sla_all = load_slam_cam(fpath)
+    if R_c2w_sla_all is None:
+        R_w2c_sla_all, t_w2c_sla_all, R_c2w_sla_all, t_c2w_sla_all = load_slam_cam(fpath)
 
     pred_trans = torch.zeros(2, len(imgfiles), 3)
     pred_rot = torch.zeros(2, len(imgfiles), 3)
@@ -267,7 +281,7 @@ def hawor_infiller(args, start_idx, end_idx, frame_chunks_all):
 
         for frame_ck in frame_chunks:
             print(f"from frame {frame_ck[0]} to {frame_ck[-1]}")                
-            pred_path = os.path.join(seq_folder, 'cam_space', str(idx), f"{frame_ck[0]}_{frame_ck[-1]}.json")
+            pred_path = os.path.join(seq_folder, 'cam_space', str(idx), f"{frame_ck[0]}_{frame_ck[-1]}{suf}.json")
             with open(pred_path, "r") as f:
                 pred_dict = json.load(f)
             data_out = {
@@ -360,7 +374,7 @@ def hawor_infiller(args, start_idx, end_idx, frame_chunks_all):
             pred_hand_pose[:, filling_net_start:filling_net_end] = torch.from_numpy(filling_seq['hand_pose'][:])
             pred_betas[:, filling_net_start:filling_net_end] = torch.from_numpy(filling_seq['betas'][:])
             pred_valid[:, filling_net_start:filling_net_end] = 1
-    save_path = os.path.join(seq_folder, "world_space_res.pth")
+    save_path = os.path.join(seq_folder, f"world_space_res{suf}.pth")
     joblib.dump([pred_trans, pred_rot, pred_hand_pose, pred_betas, pred_valid], save_path)
     return pred_trans, pred_rot, pred_hand_pose, pred_betas, pred_valid
 
